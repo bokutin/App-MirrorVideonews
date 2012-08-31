@@ -40,21 +40,33 @@ subtest pages => sub {
     my @news_uris = $app->news_page_uris;
     ok( @news_uris );
 
-    $page_uri = $marugeki_page_uris[0];
+    $page_uri = $marugeki_uris[0];
+
+    done_testing;
+};
+
+my $http_link;
+
+subtest http_links => sub {
+    plan skip_all => "page not found." unless $page_uri;
+
+    $app->mech->get($page_uri);
+    my @http_links = $app->http_links;
+    ok( @http_links );
+
+    $http_link = $http_links[0];
 
     done_testing;
 };
 
 my $mms_link;
 
-subtest mms_links => sub {
-    plan skip_all => "page not found." unless $page_uri;
+subtest mms_uri_by_http_uri => sub {
+    plan skip_all => "http_link not found." unless $http_link;
 
-    $app->mech->get($page_uri);
-    my @mms_links = $app->mms_links;
-    ok( @mms_links );
+    $mms_link = $app->mms_uri_by_http_uri($http_link);
 
-    $mms_link = $mms_links[0];
+    ok($mms_link);
 
     done_testing;
 };
