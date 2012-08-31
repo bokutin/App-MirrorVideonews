@@ -34,44 +34,36 @@ $app = $new_instance->();
 my $page_uri;
 
 subtest pages => sub {
-    my @page_uris = $app->all_page_uris;
-    ok( @page_uris );
+    my @marugeki_uris = $app->marugeki_page_uris;
+    ok( @marugeki_uris );
 
-    $page_uri = $page_uris[0];
+    my @news_uris = $app->news_page_uris;
+    ok( @news_uris );
+
+    $page_uri = $marugeki_page_uris[0];
 
     done_testing;
 };
 
-my $wmv_link;
+my $mms_link;
 
-subtest wmv_links => sub {
+subtest mms_links => sub {
     plan skip_all => "page not found." unless $page_uri;
 
-    my @wmv_links = $app->wmv_links( uri => $page_uri );
-    ok( @wmv_links );
+    $app->mech->get($page_uri);
+    my @mms_links = $app->mms_links;
+    ok( @mms_links );
 
-    $wmv_link = $wmv_links[0];
-
-    done_testing;
-};
-
-subtest mms_uri => sub {
-    plan skip_all => "wmv link not found." unless $wmv_link;
-
-    my $http_uri = $wmv_link;
-    my $mms_uri  = $app->mms_uri_by_http_uri($http_uri);
-
-    ok($http_uri);
-    ok($mms_uri);
+    $mms_link = $mms_links[0];
 
     done_testing;
 };
 
 subtest download_wmv => sub {
-    plan skip_all => "wmv link not found." unless $wmv_link;
+    plan skip_all => "mms link not found." unless $mms_link;
 
     my $tmp = File::Temp->new(SUFFIX => '.wmv');
-    my $ret = $app->download_wmv( http_uri => $wmv_link, file => $tmp->filename, mock => 1 );
+    my $ret = $app->download_wmv( mms_uri => $mms_link, file => $tmp->filename, mock => 1 );
 
     ok($ret);
 
