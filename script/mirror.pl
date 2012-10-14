@@ -6,6 +6,7 @@ use App::videonewsdownloader;
 use App::videonewsdownloader::Container qw(container);
 use Getopt::Long;
 use IO::All;
+use List::Util qw(first);
 use POSIX qw(strftime);
 use Proc::PID::File;
 use Time::Duration;
@@ -13,10 +14,17 @@ use Time::Duration;
 main: {
     my $start_time = time;
 
-    my $config = container("config");
-    my $username = $config->get->{username};
-    my $password = $config->get->{password};
-    my $save_dir = $config->get->{save_dir};
+    my $config        = container("config");
+    my $username      = $config->get->{username};
+    my $password      = $config->get->{password};
+    my $save_dir      = $config->get->{save_dir};
+    my $archives_dirs = $config->get->{archives_dirs} || [];
+
+    my $is_movie_exists = sub {
+        my $file = shift;
+
+        first { -f } map { File::Spec->catfile($_, $file) } ($save_dir, @$archives_dirs);
+    };
 
     pid: {
         my $cron = 0;
@@ -65,12 +73,13 @@ main: {
             my $mms_uri = $app->mms_uri_by_http_uri($http_uri);
             my $filename = (URI->new($mms_uri)->path_segments)[-1];
             next if $filename =~ m/\.wma/;
-            my $file = io->catfile($save_dir, $filename);
-            if ( $file->exists ) {
-                say "skipping. ".$file->pathname;
-                push @skipped, $file->pathname;
+            if ( my $pathname = $is_movie_exists->($filename) ) {
+                say "skipping. ".$pathname;
+                push @skipped, $pathname;
             }
             else {
+                my $file = io->catfile($save_dir, $filename);
+
                 # mms_uriを渡さず、http_uriを渡す。
                 # mms_uriのkeyの期限が切れている場合があるため、ダウンロードの前に取得し直す。
                 my $code = $app->download_wmv( http_uri => $http_uri, file => $file->pathname ) or die;
