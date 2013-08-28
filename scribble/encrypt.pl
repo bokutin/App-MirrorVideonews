@@ -14,7 +14,7 @@ require Crypt::Simple;
 Crypt::Simple->import( passphrase => $pass );
 
 for my $from (io("_source/data/decrypted")->All_Files) {
-    my $to = io( $from =~ s{_source/data/decrypted}{xt/data/encrypted}r || die );
+    my $to = io( $from =~ m{^_source/data/decrypted(.*)$} ? "xt/data/encrypted$1" : die );
     my $dir = dirname($to->pathname);
     -d $dir or make_path($dir) or die $!;
     $to->binary->print( encrypt( $from->binary->all ) );
