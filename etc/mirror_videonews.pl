@@ -5,4 +5,11 @@
     archives_dirs => [
         '/Volumes/ExternalHDD/Movies/Videonews',
     ],
+    blob_types => [
+        "hls",
+        "wmv",
+        "wma",
+    ],
+
+    xt_data_crypted_key => undef,
 };

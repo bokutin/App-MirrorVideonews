@@ -1,2 +1,2 @@
-etc/videonewsdownloader_local.pl
-t/data/test.unseekable.wmv
+etc/*_local.pl
+xt/data/decrypted/
