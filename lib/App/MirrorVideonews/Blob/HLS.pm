@@ -88,7 +88,9 @@ sub _uri_to_m3u8 {
     my $head = $mech->get($self->uri);
 
     # URLの末尾のトークンキーらしきものがタイムアウトしている場合
-    $mech->uri eq $self->uri or App::MirrorVideonews::Exception::TokenTimeout->throw;
+    #   http://hlsp01.videonews.com/633-1H -> http://hlsp01.videonews.com/633-1H/ 
+    #   というリダイレクトはあるようだ。末尾のスラッシュに注意。
+    $mech->uri =~ /^\Q@{[$self->uri]}\E/ or App::MirrorVideonews::Exception::TokenTimeout->throw;
 
     my @uris;
     my $finder = URI::Find->new( sub {
