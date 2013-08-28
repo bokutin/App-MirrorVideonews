@@ -104,13 +104,23 @@ sub run {
                     eval { $blob->download( catfile($self->save_dir, $basename) ) };
                     if (my $err = $@) {
                         if ($err->$_isa("App::MirrorVideonews::Exception::NotFound")) {
+                            say "File is not found. $basename";
                             push @not_found, $basename;
                         }
                         elsif ($err->$_isa("App::MirrorVideonews::Exception::TokenTimeout")) {
                             # HLSのURIのトークンキーらしきものが、タイムアウトしている場合
                             say "The token seems to be expired. @{[ $blob->uri ]}";
-                            say "Retry fetching page. @{[ $page_uri ]}";
-                            redo PAGE;
+
+                            my $num = ($self->{_num_token_timeout}{$blob->uri}||=0)++;
+                            my $max = 2;
+                            if ($num <= $max) {
+                                say "Retry($num/$max) fetching page. @{[ $page_uri ]}";
+                                redo PAGE;
+                            }
+                            else {
+                                say "Reached max retries. Skipping...";
+                                push @not_found, $basename;
+                            }
                         }
                         else {
                             die $err;

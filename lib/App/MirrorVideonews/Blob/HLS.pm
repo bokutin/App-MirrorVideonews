@@ -88,8 +88,12 @@ sub _uri_to_m3u8 {
     my $head = $mech->get($self->uri);
 
     # URLの末尾のトークンキーらしきものがタイムアウトしている場合
-    #   http://hlsp01.videonews.com/633-1H -> http://hlsp01.videonews.com/633-1H/ 
-    #   というリダイレクトはあるようだ。末尾のスラッシュに注意。
+    #   - http://hlsp01.videonews.com/633-1H -> http://hlsp01.videonews.com/633-1H/
+    #     というリダイレクトはあるようだ。末尾のスラッシュに注意。
+    #   - どうやら正しいトークンでアクセスしても、トップにリダイレクトされるものもあるようだ。
+    #     http://hlsp01.videonews.com/622-2H/?****************************************
+    #     -> http://www.videonews.com/
+    #     実際にはファイルが無いか、自動のバックナンバー判定が効いているとかだと思われる。
     $mech->uri =~ /^\Q@{[$self->uri]}\E/ or App::MirrorVideonews::Exception::TokenTimeout->throw;
 
     my @uris;
