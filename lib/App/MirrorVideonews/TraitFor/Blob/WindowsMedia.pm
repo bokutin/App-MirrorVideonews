@@ -8,7 +8,6 @@ use File::Which;
 use Guard;
 use HTML::TreeBuilder;
 use HTTP::Request::Common qw(GET);
-use IPC::Run qw(run timeout);
 use URI;
 use URI::QueryParam;
 
@@ -38,11 +37,16 @@ sub download {
         my ($in, $out, $err);
         my @cmd = ($msdl, '-s', 13, '-o', $wm1_fn, $mms_uri);
         say "cmd: " . join(" ", @cmd);
-        system(@cmd) == 0 or do {
-            unless ( -f $wm1_fn ) {
+        system(@cmd) == 0;
+        say "ret: $?";
+        unless ($? == 0) {
+            if ( -f $wm1_fn ) {
+                return;
+            }
+            else {
                 App::MirrorVideonews::Exception::NotFound->throw;
             }
-        };
+        }
     }
 
     if ($MOCK and !-f $test_wmv) {
@@ -55,7 +59,11 @@ sub download {
         my ($in, $out, $err);
         my @cmd = ($ffmpeg, "-y", "-i", $wm1_fn, qw(-acodec copy -vcodec copy), $wm2_fn);
         say "cmd: " . join(" ", @cmd);
-        run \@cmd, \$in, \$out, \$err, timeout(10*60) or die "system @cmd failed: $?";
+        system(@cmd);
+        say "ret: $?";
+        unless ($? == 0) {
+            return;
+        }
     }
 
     rename $wm2_fn, $filename or die $!;

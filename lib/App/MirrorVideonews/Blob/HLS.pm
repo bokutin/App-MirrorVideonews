@@ -49,12 +49,11 @@ sub download {
     my @cmd = ($ffmpeg, '-v', 'quiet', '-i', $m3u8, '-c', 'copy', $temp);
     say "cmd: " . join(" ", @cmd);
     system(@cmd);
-    if ($? == 0) {
-        rename $temp, $filename or die $!;
-    }
-    else {
+    say "ret: $?";
+    unless ($? == 0) {
         die $!;
     }
+    rename $temp, $filename or die $!;
 }
 
 sub save_as_basename {
