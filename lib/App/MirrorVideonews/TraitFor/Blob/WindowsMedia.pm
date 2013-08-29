@@ -37,7 +37,7 @@ sub download {
         my ($in, $out, $err);
         my @cmd = ($msdl, '-s', 13, '-o', $wm1_fn, $mms_uri);
         say "cmd: " . join(" ", @cmd);
-        system(@cmd) == 0;
+        system(@cmd);
         say "ret: $?";
         unless ($? == 0) {
             if ( -f $wm1_fn ) {
