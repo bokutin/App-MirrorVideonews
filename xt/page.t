@@ -26,6 +26,7 @@ less_than @can_blobs    , @all_blobs;
 less_than @wmv300_blobs , @hls_blobs;
 less_than @wmv300_blobs , @wma_blobs;
 is @hls_blobs           , @wma_blobs;
-is @wmv300_blobs        , @wmv50_blobs;
+is @wmv300_blobs        , 20;
+is @wmv50_blobs         , 0;
 
 done_testing;

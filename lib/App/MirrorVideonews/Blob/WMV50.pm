@@ -8,7 +8,7 @@ with qw(App::MirrorVideonews::Role::Blob App::MirrorVideonews::TraitFor::Blob::W
 sub can_handle_uri {
     my ($class, $uri) = @_;
 
-    $uri =~ m/\b50\D*\.wmv$/i;
+    $uri =~ m/\D50\D*\.wmv$/i;
 }
 
 __PACKAGE__->meta->make_immutable; no Moose; 1;
