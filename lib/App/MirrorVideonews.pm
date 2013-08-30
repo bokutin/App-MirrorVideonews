@@ -111,7 +111,7 @@ sub run {
                             # HLSのURIのトークンキーらしきものが、タイムアウトしている場合
                             say "The token seems to be expired. @{[ $blob->uri ]}";
 
-                            my $num = ($self->{_num_token_timeout}{$blob->uri}||=0)++;
+                            my $num = $self->{_num_token_timeout}{$blob->uri}++;
                             my $max = 2;
                             if ($num <= $max) {
                                 say "Retry($num/$max) fetching page. @{[ $page_uri ]}";
