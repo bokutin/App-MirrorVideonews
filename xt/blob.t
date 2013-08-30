@@ -13,7 +13,8 @@ xt::lib::Util::prepare_decrypted_files();
 
 use_ok("App::MirrorVideonews::Blob::HLS");
 use_ok("App::MirrorVideonews::Blob::WMA");
-use_ok("App::MirrorVideonews::Blob::WMV");
+use_ok("App::MirrorVideonews::Blob::WMV300");
+use_ok("App::MirrorVideonews::Blob::WMV50");
 use_ok("App::MirrorVideonews::Page");
 
 my $page = App::MirrorVideonews::Page->new(

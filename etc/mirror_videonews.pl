@@ -7,7 +7,8 @@
     ],
     blob_types => [
         "hls",
-        "wmv",
+        "wmv300",
+        "wmv50",
         "wma",
     ],
 
