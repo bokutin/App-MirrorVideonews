@@ -21,7 +21,7 @@ has username      => ( is => "ro", isa => "Str" );
 has password      => ( is => "ro", isa => "Str" );
 has save_dir      => ( is => "ro", isa => "Str" );
 has archives_dirs => ( is => "ro", isa => "ArrayRef[Str]", default => sub { [] } );
-has blob_types    => ( is => "ro", isa => "ArrayRef[Str]", default => sub { [qw(hls youtube wmv300 wmv50 wma)] } );
+has blob_types    => ( is => "ro", isa => "ArrayRef[Str]", default => sub { [qw(HLS YouTube WMV300 WMV50 WMA)] } );
 
 sub exists_file {
     my ($self, $basename) = @_;
