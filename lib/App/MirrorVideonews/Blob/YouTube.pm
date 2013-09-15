@@ -44,8 +44,7 @@ sub download {
     unless ($? == 0) {
         die $!;
     }
-    $guard->cancel;
-    rename $tempname, $filename or die $!;
+    rename catfile($dir,$tempname), $filename or die $!;
 }
 
 sub save_as_basename {
