@@ -1,2 +1,5 @@
+_*/
 etc/*_local.pl
+scribble/
 xt/data/decrypted/
+.pid$
