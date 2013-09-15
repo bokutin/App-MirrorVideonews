@@ -6,10 +6,11 @@
         '/Volumes/ExternalHDD/Movies/Videonews',
     ],
     blob_types => [
-        "hls",
-        "wmv300",
-        "wmv50",
-        "wma",
+        "HLS",
+        "YouTube",
+        "WMV300",
+        "WMV50",
+        "WMA",
     ],
 
     xt_data_crypted_key => undef,

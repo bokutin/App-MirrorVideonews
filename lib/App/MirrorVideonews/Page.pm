@@ -23,7 +23,7 @@ sub blobs {
     my ($self, $type) = @_;
 
     my @blob_classes = useall("App::MirrorVideonews::Blob");
-    @blob_classes = grep { /::$type$/ }  @blob_classes if $type;
+    @blob_classes = grep { /::$type$/ } @blob_classes if $type;
 
     map {
         my $uri = $_;

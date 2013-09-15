@@ -21,7 +21,7 @@ has username      => ( is => "ro", isa => "Str" );
 has password      => ( is => "ro", isa => "Str" );
 has save_dir      => ( is => "ro", isa => "Str" );
 has archives_dirs => ( is => "ro", isa => "ArrayRef[Str]", default => sub { [] } );
-has blob_types    => ( is => "ro", isa => "ArrayRef[Str]", default => sub { [qw(hls wmv wma)] } );
+has blob_types    => ( is => "ro", isa => "ArrayRef[Str]", default => sub { [qw(hls youtube wmv300 wmv50 wma)] } );
 
 sub exists_file {
     my ($self, $basename) = @_;
@@ -92,7 +92,7 @@ sub run {
         $mech->get($page_uri);
         my $page = App::MirrorVideonews::Page->new( app => $self );
         for my $type (@{$self->blob_types}) {
-            for my $blob ($page->blobs(uc($type))) {
+            for my $blob ($page->blobs($type)) {
                 my $basename = $blob->save_as_basename;
                 say "--> $basename";
                 push @all_blobs, $blob;
