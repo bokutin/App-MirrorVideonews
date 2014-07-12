@@ -82,18 +82,6 @@ sub login {
     }
 }
 
-sub marugeki_page_uris {
-    my $self = shift;
-
-    $self->_all_page_uris("http://www.videonews.com/charged/on-demand/index.php");
-}
-
-sub news_page_uris {
-    my $self = shift;
-
-    $self->_all_page_uris("http://www.videonews.com/charged/news-commentary/index.php");
-}
-
 sub run {
     my $self = shift;
 
@@ -101,10 +89,12 @@ sub run {
 
     $self->login unless $self->is_logged_in;
 
-    my @marugeki_uris = $self->marugeki_page_uris;
-    my @news_uris     = $self->news_page_uris;
-    my @page_uris     = (@marugeki_uris, @news_uris);
-    say sprintf("%d pages found. (marugeki: %d, news: %d)", 0+@page_uris, 0+@marugeki_uris, 0+@news_uris);
+    my @categories = (qw(on-demand news fukushima interviews press-club special-report));
+    my %pages;
+    $pages{$_} = [ $self->_all_page_uris("http://www.videonews.com/charged/$_/index.php") ] for @categories;
+
+    my @page_uris  = map { @{$pages{$_}} } @categories;
+    say "@{[ 0+@page_uris ]} pages found. (@{[ join ', ', map { $_ . ':' . (0+@{$pages{$_}}) } @categories ]})";
     
     my @downloaded;
     my @not_found;
