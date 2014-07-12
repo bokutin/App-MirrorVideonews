@@ -44,7 +44,14 @@ sub download {
     unless ($? == 0) {
         die $!;
     }
-    rename catfile($dir,$tempname), $filename or die $!;
+    rename _dame(catfile($dir,$tempname)), _dame($filename) or die $!;
+}
+
+sub _dame {
+    local $_ = shift;
+    s/:/-/g;
+    s/>/_/g;
+    $_;
 }
 
 sub save_as_basename {
@@ -52,7 +59,12 @@ sub save_as_basename {
 
     my $wq = $self->page->wq;
     # href="... " とスペースが入っている場合があるため = ではなく ^= で。
-    my $this = $wq->find(qq/a[href^="@{[ $self->uri ]}"]/);
+    # href=" http://... " とスペースが入っている場合があるため = ではなく ^= で。
+    # href="\nhttp://..." と改行が入っている場合があるため ^= ではなく *= で。
+    my $this = $wq->find(qq/a[href*="@{[ $self->uri ]}"]/);
+    unless ($this->as_html) {
+        die $self->uri;
+    }
     my $title1 = do {
         my $cur = $this;
         $cur = $cur->parent until $cur->find('.title1')->size;

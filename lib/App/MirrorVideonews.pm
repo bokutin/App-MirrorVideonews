@@ -40,6 +40,8 @@ sub exists_file {
     # 新: 第659回マル激トーク・オン・ディマンド （2013年11月30日）5金スペシャル秘密保護法が露わにした日本の未熟な民主主義とアメリカへの隷属PART1（104分） (YouTube).flv
     my @basenames = map {
         $_,
+        (/:/ ? s/:/-/gr : ()),
+        (/>/ ? s/>/_/gr : ()),
         (/ \(YouTube\)/ ? s/ \(YouTube\)//r : ()),
     } (
          $basename,
@@ -89,7 +91,7 @@ sub run {
 
     $self->login unless $self->is_logged_in;
 
-    my @categories = (qw(on-demand news fukushima interviews press-club special-report));
+    my @categories = (qw(on-demand news-commentary fukushima interviews press-club special-report));
     my %pages;
     $pages{$_} = [ $self->_all_page_uris("http://www.videonews.com/charged/$_/index.php") ] for @categories;
 
