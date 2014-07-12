@@ -35,13 +35,22 @@ sub exists_file {
     # 全角５の場合もあり。
     # 旧: 第546回マル激トーク・オン・ディマンド （2011年10月01日）自分探しを始めたアメリカはどこに向かうのかPART1（48分） (YouTube).flv
     # 新: 第546回マル激トーク・オン・ディマンド （2011年10月01日）５金スペシャル自分探しを始めたアメリカはどこに向かうのかPART1（48分） (YouTube).flv
-    my @basenames = (
-        $basename,
-        ($basename =~ /[5５]金スペシャル/ ? $basename =~ s/[5５]金スペシャル//r : ()),
+    # タイトルが付加されたものもあり。
+    # 旧: 第659回マル激トーク・オン・ディマンド （2013年11月30日）PART1（104分） (YouTube).flv
+    # 新: 第659回マル激トーク・オン・ディマンド （2013年11月30日）5金スペシャル秘密保護法が露わにした日本の未熟な民主主義とアメリカへの隷属PART1（104分） (YouTube).flv
+    my @basenames = map {
+        $_,
+        (/ \(YouTube\)/ ? s/ \(YouTube\)//r : ()),
+    } (
+         $basename,
+        ($basename =~ /[5５]金スペシャル/       ? $basename =~ s/[5５]金スペシャル//r           : ()),
+        ($basename =~ /[5５]金スペシャル.*PART/ ? $basename =~ s/[5５]金スペシャル.*PART/PART/r : ()),
     );
     my $candidates = cartesian { catfile(@_) } \@dirs, \@basenames;
 
     -f and return 1 for @$candidates;
+    #use XXX;
+    #XXX \@basenames;
     return 0;
 }
 
