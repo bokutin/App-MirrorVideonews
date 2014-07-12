@@ -9,6 +9,7 @@ use App::MirrorVideonews::Page;
 use File::Spec::Functions qw(catfile);
 use HTTP::Request::Common qw(HEAD);
 use List::BinarySearch qw(bsearch_custom);
+use List::Gen qw(cartesian);
 use List::Util qw(first);
 use POSIX qw(strftime);
 use Safe::Isa;
@@ -27,7 +28,21 @@ sub exists_file {
     my ($self, $basename) = @_;
 
     my @dirs = ($self->save_dir, @{$self->archives_dirs});
-    first { -f } map { catfile($_, $basename) } @dirs;
+    # 2014-07-12現在、以前あった名前に 5金スペシャル が足されていることがあるのを確認。
+    # 旧: 第668回マル激トーク・オン・ディマンド （2014年02月01日）政治権力による放送の私物化を許してはならないPART1（58分） (YouTube).flv
+    # 新: 第668回マル激トーク・オン・ディマンド （2014年02月01日）5金スペシャル政治権力による放送の私物化を許してはならないPART1（58分） (YouTube).flv
+    # 済なものがダウンロードされてしまうことがあるのに対応。
+    # 全角５の場合もあり。
+    # 旧: 第546回マル激トーク・オン・ディマンド （2011年10月01日）自分探しを始めたアメリカはどこに向かうのかPART1（48分） (YouTube).flv
+    # 新: 第546回マル激トーク・オン・ディマンド （2011年10月01日）５金スペシャル自分探しを始めたアメリカはどこに向かうのかPART1（48分） (YouTube).flv
+    my @basenames = (
+        $basename,
+        ($basename =~ /[5５]金スペシャル/ ? $basename =~ s/[5５]金スペシャル//r : ()),
+    );
+    my $candidates = cartesian { catfile(@_) } \@dirs, \@basenames;
+
+    -f and return 1 for @$candidates;
+    return 0;
 }
 
 sub login {
