@@ -64,25 +64,53 @@ sub login {
     die "Username required." unless $self->username;
     die "Password required." unless $self->password;
 
-    $mech->get('http://www.videonews.com/');
-    $mech->follow_link( url_regex => qr/ContentsRequestReceive\.jsp\?req=2\b/ );
+    $mech->get('https://subscription.videonews.com/V00/login');
     $mech->submit_form(
         with_fields => {
-            memberName => $self->username,
-            password   => $self->password,
+            user_name     => $self->username,
+            user_password => $self->password,
         },
     );
-    $mech->follow_link( url_regex => qr/javascript:doSubmit/ );
 
     my $text = $mech->document->documentElement->as_text;
 
-    if ( $text =~ m/現在ログイン中です/ ) {
+    if ( $text =~ m/視聴準備が完了しました/ ) {
+        $mech->follow_link( url_regex => qr{http://www\.videonews\.com/charged/sceoscscikoine\.php} );
         $self->is_logged_in(1);
     }
     else {
         die "login failed.";
     }
 }
+
+# 2014-07-18あたりからログイン出来なくなった
+#sub login {
+#    my $self = shift;
+#
+#    my $mech = $self->mech;
+#
+#    die "Username required." unless $self->username;
+#    die "Password required." unless $self->password;
+#
+#    $mech->get('http://www.videonews.com/');
+#    $mech->follow_link( url_regex => qr/ContentsRequestReceive\.jsp\?req=2\b/ );
+#    $mech->submit_form(
+#        with_fields => {
+#            memberName => $self->username,
+#            password   => $self->password,
+#        },
+#    );
+#    $mech->follow_link( url_regex => qr/javascript:doSubmit/ );
+#
+#    my $text = $mech->document->documentElement->as_text;
+#
+#    if ( $text =~ m/現在ログイン中です/ ) {
+#        $self->is_logged_in(1);
+#    }
+#    else {
+#        die "login failed.";
+#    }
+#}
 
 sub run {
     my $self = shift;
