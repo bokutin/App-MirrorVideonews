@@ -9,7 +9,8 @@
         "FLV",
         "WMV",
         "iPhone",
+        "YouTube",
     ],
 
-    xt_data_crypted_key => undef,
+    max_jobs => 2, # phantomjs + ffmpeg
 };

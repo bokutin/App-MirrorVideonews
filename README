@@ -3,3 +3,4 @@ FreeBSD 9.2-RELEASE-p10 amd64
 % sudo pkg install ffmpeg
 % sudo pkg install msdl
 % sudo pkg install phantomjs
+% pip install youtube-dl

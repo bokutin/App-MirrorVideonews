@@ -27,6 +27,7 @@ has password      => ( is => "ro", isa => "Str" );
 has save_dir      => ( is => "ro", isa => "Str" );
 has archives_dirs => ( is => "ro", isa => "ArrayRef[Str]", default => sub { [] } );
 has download_media_types => ( is => "ro", isa => "ArrayRef[Str]" );
+has max_jobs      => ( is => "ro", isa => "Int", default => 2 );
 
 sub exists_file {
     my $self = shift;
@@ -97,10 +98,11 @@ sub run {
             for my $article (@articles) {
                 $log->debug("    --> Article $article");
                 my @media = $self->_media($article);
-                for my $media (@media) {
+                for my $i (0..$#media) {
+                    my $media = $media[$i];
                     my $type = $self->_media_type($media);
                     $log->debug("      --> Media($type) $media");
-                    $self->_download($channel, $media, $type) if grep { $_ eq $type } @{$self->download_media_types};
+                    $self->_download($channel, $page, $article, $media, $type, $i) if grep { $_ eq $type } @{$self->download_media_types};
                 }
             }
         }
@@ -209,8 +211,31 @@ sub _channels {
     @href = uniq @href;
 }
 
+sub _pids {
+    my $self = shift;
+
+    map { chomp; $_ } `pgrep -P $$`;
+}
+
 sub _download {
-    my ($self, $channel, $media, $type) = @_;
+    my ($self, $channel, $page, $article, $media, $type, $media_idx) = @_;
+
+    REAP: for my $pid ($self->_pids) {
+        use POSIX ":sys_wait_h";
+        my $kid = waitpid($pid, WNOHANG);
+        if ($kid > 0) {
+            my $ret = $? >> 8;
+            say "pid:$pid ret:$ret";
+            unless ($ret == 0) {
+                kill 15, $_ for $self->_pids;
+                die;
+            }
+        }
+    }
+    if ($self->_pids >= $self->max_jobs) {
+        sleep 1;
+        goto REAP;
+    }
 
     my $channel_dir = (URI->new($channel)->path_segments)[1];
 
@@ -240,12 +265,19 @@ sub _download {
         my $ffmpeg = which('ffmpeg') or die "ffmpeg not found.";
         my @cmd = ($ffmpeg, '-v', 'quiet', '-stats', '-y', '-i', $m3u8, '-c', 'copy', $temp);
         say "cmd: " . join(" ", @cmd);
-        system(@cmd);
-        say "ret: $?";
-        unless ($? == 0) {
-            die $!;
+
+        if (my $pid = fork) {
+            sleep 1;
         }
-        rename $temp, $filename or die $!;
+        else {
+            undef &WWW::Mechanize::PhantomJS::DESTROY;
+            my $ret = system(@cmd);
+            if ($ret == 0) {
+                rename $temp, $filename or die $!;
+            }
+            $log->debug("Child finish. $ret @{[ join ' ', @cmd ]}");
+            exit $ret;
+        }
     }
     elsif ($type eq 'WMV') {
         # http://www.videonews.com/cb/v.php?p=/marugeki/645/marugeki_645-1a.wma
@@ -265,41 +297,87 @@ sub _download {
 
         (my $wm1_fn = $filename) =~ s/\.[^.]+$/.unseekable$&/ or die;
         (my $wm2_fn = $filename) =~ s/\.[^.]+$/.seekable$&/   or die;
-        scope_guard {
-            -f $wm1_fn and unlink $wm1_fn;
-            -f $wm2_fn and unlink $wm2_fn;
+        if (my $pid = fork) {
+            sleep 1;
+        }
+        else {
+            undef &WWW::Mechanize::PhantomJS::DESTROY;
+            # my $ret = system(@cmd);
+            # if ($ret == 0) {
+            #     rename $temp, $filename or die $!;
+            # }
+            # $log->debug("Child finish. $ret @{[ join ' ', @cmd ]}");
+            # exit $ret;
+
+            scope_guard {
+                -f $wm1_fn and unlink $wm1_fn;
+                -f $wm2_fn and unlink $wm2_fn;
+            };
+
+            {
+                # 500/(300/8) = 13.33333333333333333333
+                my ($in, $out, $err);
+                my @cmd = ($msdl, '-s', 13, '-o', $wm1_fn, $mms_uri);
+                say "cmd: " . join(" ", @cmd);
+                my $ret = system(@cmd);
+                say "ret: $ret";
+                unless ($ret == 0) {
+                    if ( -f $wm1_fn ) {
+                        return;
+                    }
+                    else {
+                        App::MirrorVideonews::Exception::NotFound->throw;
+                    }
+                }
+            }
+
+            {
+                # http://web.archiveorange.com/archive/v/KKJCyu8LV0Kt8lTDZs1R
+                # ffmpeg -i news_593-1_300r.wmv -acodec copy -vcodec copy /largefs/news_593-1_300r-copy.wmv
+                my ($in, $out, $err);
+                my @cmd = ($ffmpeg, '-v', 'quiet', '-stats', "-y", "-i", $wm1_fn, qw(-acodec copy -vcodec copy), $wm2_fn);
+                say "cmd: " . join(" ", @cmd);
+                my $ret = system(@cmd);
+                say "ret: $ret";
+                unless ($ret == 0) {
+                    return;
+                }
+            }
+
+            rename $wm2_fn, $filename or die $!;
+
+            exit 0;
+        }
+    }
+    elsif ($type eq 'YouTube') {
+        my $basename = do {
+            my $name = join "-", (URI->new($article)->path_segments)[2], $media_idx+1, "YouTube";
+            my $ext  = "flv";
+            "$name.$ext";
         };
 
-        my $test_wmv = "t/data/test.unseekable.wmv";
-        # 500/(300/8) = 13.33333333333333333333
-        my ($in, $out, $err);
-        my @cmd = ($msdl, '-s', 13, '-o', $wm1_fn, $mms_uri);
+        return if $self->exists_file($channel_dir, $basename);
+
+        my $filename = catfile($self->save_dir, $channel_dir, $basename);
+        (my $temp = $filename) =~ s/\.[^.]+$/.tmp$&/ or die;
+        -d dirname($filename) or make_path dirname($filename) or die $!;
+
+        my $cmd = which('youtube-dl') or die "youtube-dl not found.";
+        my @cmd = ($cmd, '-o', $temp, $media);
         say "cmd: " . join(" ", @cmd);
-        system(@cmd);
-        say "ret: $?";
-        unless ($? == 0) {
-            if ( -f $wm1_fn ) {
-                return;
-            }
-            else {
-                App::MirrorVideonews::Exception::NotFound->throw;
-            }
-        }
 
-        {
-            # http://web.archiveorange.com/archive/v/KKJCyu8LV0Kt8lTDZs1R
-            # ffmpeg -i news_593-1_300r.wmv -acodec copy -vcodec copy /largefs/news_593-1_300r-copy.wmv
-            my ($in, $out, $err);
-            my @cmd = ($ffmpeg, '-v', 'quiet', '-stats', "-y", "-i", $wm1_fn, qw(-acodec copy -vcodec copy), $wm2_fn);
-            say "cmd: " . join(" ", @cmd);
-            system(@cmd);
-            say "ret: $?";
-            unless ($? == 0) {
-                return;
-            }
+        if (my $pid = fork) {
+            sleep 1;
         }
-
-        rename $wm2_fn, $filename or die $!;
+        else {
+            undef &WWW::Mechanize::PhantomJS::DESTROY;
+            my $ret = system(@cmd);
+            if ($ret == 0) {
+                rename $temp, $filename or die $!;
+            }
+            $log->debug("Child finish. $ret @{[ join ' ', @cmd ]}");
+            exit $ret;
+        }
     }
     else {
         $log->error("Unsupported media type. $type");
@@ -313,6 +391,8 @@ sub _media {
     my @uris;
     wq( $self->mech->content )->find('#player iframe')->each(
         sub {
+            # <div id="player" class="backnumber_bg">
+            return if $_->parent->attr('class') and $_->parent->attr('class') eq 'backnumber_bg'; # バックナンバーのYouTubeで10分程度のサンプルが落ちてくる
             push @uris, URI->new_abs($_->attr('src'), $article);
         }
     );
@@ -328,16 +408,23 @@ sub _media {
 sub _media_type {
     my ($self, $media) = @_;
 
-    # --> Video http://www.videonews.com/embed/?v=U2FsdGVkX1%2FCjBTbmKPRX9%2BqlgziDaGW5ryfCs7JEhM%3D&autoplay=0&thumb=1
-    # --> Video http://www.videonews.com/embed/?v=U2FsdGVkX19P8XDM68bszUMEzEGhVWaOzieWyS8pH2w%3D&autoplay=0&thumb=1
-    # --> Video http://www.videonews.com/cb/v2.php?p=/marugeki/705/marugeki_705-1_300.wmv
-    # --> Video http://www.videonews.com/extm3/?v=U2FsdGVkX1%2BFPIYp5EyLXhSF9xPNiEuNHfiA9ycmir8%3D&t=1
-    # --> Video http://www.videonews.com/cb/v2.php?p=/marugeki/705/marugeki_705-2_300.wmv
-    # --> Video http://www.videonews.com/extm3/?v=U2FsdGVkX1%2FqUQuzEJb5XggNTSXWR9CYb%2Flgy81Vra8%3D&t=1
+    # http://www.videonews.com/marugeki-talk/705/
+    #   http://www.videonews.com/embed/?v=U2FsdGVkX1%2FCjBTbmKPRX9%2BqlgziDaGW5ryfCs7JEhM%3D&autoplay=0&thumb=1
+    #   http://www.videonews.com/embed/?v=U2FsdGVkX19P8XDM68bszUMEzEGhVWaOzieWyS8pH2w%3D&autoplay=0&thumb=1
+    #   http://www.videonews.com/cb/v2.php?p=/marugeki/705/marugeki_705-1_300.wmv
+    #   http://www.videonews.com/extm3/?v=U2FsdGVkX1%2BFPIYp5EyLXhSF9xPNiEuNHfiA9ycmir8%3D&t=1
+    #   http://www.videonews.com/cb/v2.php?p=/marugeki/705/marugeki_705-2_300.wmv
+    #   http://www.videonews.com/extm3/?v=U2FsdGVkX1%2FqUQuzEJb5XggNTSXWR9CYb%2Flgy81Vra8%3D&t=1
+    #
+    # http://www.videonews.com/marugeki-talk/685/
+    #   http://www.youtube.com/embed/TOmlVsp7JF0?rel=0&wmode=transparent
+    #   http://www.youtube.com/embed/S53MGG_DQb0?rel=0&wmode=transparent
 
-    return 'FLV'    if $media =~ /autoplay/;
-    return 'WMV'    if $media =~ /300\.wmv/;
-    return 'iPhone' if $media =~ /extm3/;
+    return 'FLV'     if $media =~ /autoplay/;
+    return 'WMV'     if $media =~ /300\.wmv/;
+    return 'WMA'     if $media =~ /\.wma/;
+    return 'iPhone'  if $media =~ /extm3/;
+    return 'YouTube' if $media =~ /youtube/;
 }
 
 sub _pages {
@@ -389,12 +476,9 @@ sub _build_mech {
     my $self = shift;
  
     require WWW::Mechanize::PhantomJS;
-
     my $mech = WWW::Mechanize::PhantomJS->new(
         cookie_file => 'var/cookie.dat',
     );
-
-    $mech;
 }
 
 no Moose;
