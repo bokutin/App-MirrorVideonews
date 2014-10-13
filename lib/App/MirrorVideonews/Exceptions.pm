@@ -1,11 +1,9 @@
 package App::MirrorVideonews::Exceptions;
 
-package App::MirrorVideonews::Exception::NotFound;
-use Moose;
-with 'Throwable';
-__PACKAGE__->meta->make_immutable; no Moose; 1;
+use Exception::Class (
+    'App::MirrorVideonews::Exception',
+    'App::MirrorVideonews::Exception::NotFound'     => { isa => 'App::MirrorVideonews::Exception' },
+    'App::MirrorVideonews::Exception::TokenTimeout' => { isa => 'App::MirrorVideonews::Exception' },
+);
 
-package App::MirrorVideonews::Exception::TokenTimeout;
-use Moose;
-with 'Throwable';
-__PACKAGE__->meta->make_immutable; no Moose; 1;
+1;

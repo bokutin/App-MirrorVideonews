@@ -11,7 +11,7 @@ sub run {
     binmode STDOUT, ":utf8";
 
     my $config = container("config");
-    my $cmd = App::MirrorVideonews->new( $config->get );
+    my $cmd = App::MirrorVideonews->new( $config );
     $cmd->run;
 }
 

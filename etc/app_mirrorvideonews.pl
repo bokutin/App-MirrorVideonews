@@ -5,12 +5,10 @@
     archives_dirs => [
         '/Volumes/ExternalHDD/Movies/Videonews',
     ],
-    blob_types => [
-        "HLS",
-        "YouTube",
-        "WMV300",
-        "WMV50",
-        "WMA",
+    download_media_types => [
+        "FLV",
+        "WMV",
+        "iPhone",
     ],
 
     xt_data_crypted_key => undef,

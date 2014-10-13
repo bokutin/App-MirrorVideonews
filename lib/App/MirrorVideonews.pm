@@ -4,56 +4,45 @@ use utf8;
 use Modern::Perl;
 use Moose;
 
-use App::MirrorVideonews::Exceptions;
-use App::MirrorVideonews::Page;
+use Data::Dumper;
+use File::Basename qw(dirname);
+use File::Path qw(make_path);
 use File::Spec::Functions qw(catfile);
-use HTTP::Request::Common qw(HEAD);
-use List::BinarySearch qw(bsearch_custom);
-use List::Gen qw(cartesian);
+use File::Which;
+use Guard;
+use List::MoreUtils qw(uniq);
 use List::Util qw(first);
+use Log::Any qw($log);
 use POSIX qw(strftime);
 use Safe::Isa;
 use Time::Duration;
-use WWW::Scripter;
+use URI;
+use URI::Find;
+use URI::QueryParam;
+use Web::Query 'wq';
 
-has mech          => ( is => "rw", isa => "WWW::Scripter", lazy_build => 1 );
-has is_logged_in  => ( is => "rw", isa => "Bool", default => 0 );
+has mech          => ( is => "rw", isa => "WWW::Mechanize::PhantomJS", lazy_build => 1 );
 has username      => ( is => "ro", isa => "Str" );
 has password      => ( is => "ro", isa => "Str" );
 has save_dir      => ( is => "ro", isa => "Str" );
 has archives_dirs => ( is => "ro", isa => "ArrayRef[Str]", default => sub { [] } );
-has blob_types    => ( is => "ro", isa => "ArrayRef[Str]", default => sub { [qw(HLS YouTube WMV300 WMV50 WMA)] } );
+has download_media_types => ( is => "ro", isa => "ArrayRef[Str]" );
 
 sub exists_file {
-    my ($self, $basename) = @_;
+    my $self = shift;
 
     my @dirs = ($self->save_dir, @{$self->archives_dirs});
-    # 2014-07-12現在、以前あった名前に 5金スペシャル が足されていることがあるのを確認。
-    # 旧: 第668回マル激トーク・オン・ディマンド （2014年02月01日）政治権力による放送の私物化を許してはならないPART1（58分） (YouTube).flv
-    # 新: 第668回マル激トーク・オン・ディマンド （2014年02月01日）5金スペシャル政治権力による放送の私物化を許してはならないPART1（58分） (YouTube).flv
-    # 済なものがダウンロードされてしまうことがあるのに対応。
-    # 全角５の場合もあり。
-    # 旧: 第546回マル激トーク・オン・ディマンド （2011年10月01日）自分探しを始めたアメリカはどこに向かうのかPART1（48分） (YouTube).flv
-    # 新: 第546回マル激トーク・オン・ディマンド （2011年10月01日）５金スペシャル自分探しを始めたアメリカはどこに向かうのかPART1（48分） (YouTube).flv
-    # タイトルが付加されたものもあり。
-    # 旧: 第659回マル激トーク・オン・ディマンド （2013年11月30日）PART1（104分） (YouTube).flv
-    # 新: 第659回マル激トーク・オン・ディマンド （2013年11月30日）5金スペシャル秘密保護法が露わにした日本の未熟な民主主義とアメリカへの隷属PART1（104分） (YouTube).flv
-    my @basenames = map {
-        $_,
-        (/:/ ? s/:/-/gr : ()),
-        (/>/ ? s/>/_/gr : ()),
-        (/ \(YouTube\)/ ? s/ \(YouTube\)//r : ()),
-    } (
-         $basename,
-        ($basename =~ /[5５]金スペシャル/       ? $basename =~ s/[5５]金スペシャル//r           : ()),
-        ($basename =~ /[5５]金スペシャル.*PART/ ? $basename =~ s/[5５]金スペシャル.*PART/PART/r : ()),
-    );
-    my $candidates = cartesian { catfile(@_) } \@dirs, \@basenames;
+    for (@dirs) {
+        my $path = catfile($_, @_);
+        return 1 if -f $path;
+    }
+}
 
-    -f and return 1 for @$candidates;
-    #use XXX;
-    #XXX \@basenames;
-    return 0;
+sub is_logged_in {
+    my $self = shift;
+
+    $self->mech->get('http://www.videonews.com/');
+    $self->mech->content =~ /会員情報の変更/;
 }
 
 sub login {
@@ -64,7 +53,9 @@ sub login {
     die "Username required." unless $self->username;
     die "Password required." unless $self->password;
 
-    $mech->get('https://subscription.videonews.com/V00/login');
+    $mech->get('http://www.videonews.com/');
+    $mech->eval_in_page(q/ $('.loginbtn').trigger("click"); /);
+    sleep 1 until $mech->content =~ /user_name/;
     $mech->submit_form(
         with_fields => {
             user_name     => $self->username,
@@ -72,177 +63,340 @@ sub login {
         },
     );
 
-    my $text = $mech->document->documentElement->as_text;
+    my $text = $mech->content;
 
     if ( $text =~ m/視聴準備が完了しました/ ) {
-        $mech->follow_link( url_regex => qr{http://www\.videonews\.com/charged/sceoscscikoine\.php} );
-        $self->is_logged_in(1);
+        $log->debug("視聴準備が完了しました。");
+        $mech->follow_link( url => 'http://www.videonews.com/charged/sceoscscikoine.php' );
+        $log->debug("ログインしました。");
     }
     else {
         die "login failed.";
     }
 }
 
-# 2014-07-18あたりからログイン出来なくなった
-#sub login {
-#    my $self = shift;
-#
-#    my $mech = $self->mech;
-#
-#    die "Username required." unless $self->username;
-#    die "Password required." unless $self->password;
-#
-#    $mech->get('http://www.videonews.com/');
-#    $mech->follow_link( url_regex => qr/ContentsRequestReceive\.jsp\?req=2\b/ );
-#    $mech->submit_form(
-#        with_fields => {
-#            memberName => $self->username,
-#            password   => $self->password,
-#        },
-#    );
-#    $mech->follow_link( url_regex => qr/javascript:doSubmit/ );
-#
-#    my $text = $mech->document->documentElement->as_text;
-#
-#    if ( $text =~ m/現在ログイン中です/ ) {
-#        $self->is_logged_in(1);
-#    }
-#    else {
-#        die "login failed.";
-#    }
-#}
-
 sub run {
     my $self = shift;
+
+    binmode STDERR, ":utf8";
+
+    require Log::Any::Adapter;
+    Log::Any::Adapter->set('Stderr');
 
     my $start_time = time;
 
     $self->login unless $self->is_logged_in;
 
-    my @categories = (qw(on-demand news-commentary fukushima interviews press-club special-report));
-    my %pages;
-    $pages{$_} = [ $self->_all_page_uris("http://www.videonews.com/charged/$_/index.php") ] for @categories;
-
-    my @page_uris  = map { @{$pages{$_}} } @categories;
-    say "@{[ 0+@page_uris ]} pages found. (@{[ join ', ', map { $_ . ':' . (0+@{$pages{$_}}) } @categories ]})";
-    
-    my @downloaded;
-    my @not_found;
-    my @all_blobs;
-    my @skipped;
-    my $mech = $self->mech;
-    PAGE: for my $page_uri (@page_uris) {
-        say "==> $page_uri";
-        $mech->get($page_uri);
-        my $page = App::MirrorVideonews::Page->new( app => $self );
-        for my $type (@{$self->blob_types}) {
-            for my $blob ($page->blobs($type)) {
-                my $basename = $blob->save_as_basename;
-                say "--> $basename";
-                push @all_blobs, $blob;
-                if (my $fn = $self->exists_file($basename)) {
-                    say "skipping. $fn";
-                    push @skipped, $basename;
-                }
-                else {
-                    eval { $blob->download( catfile($self->save_dir, $basename) ) };
-                    if (my $err = $@) {
-                        if ($err->$_isa("App::MirrorVideonews::Exception::NotFound")) {
-                            say "File is not found. $basename";
-                            push @not_found, $basename;
-                        }
-                        elsif ($err->$_isa("App::MirrorVideonews::Exception::TokenTimeout")) {
-                            # HLSのURIのトークンキーらしきものが、タイムアウトしている場合
-                            say "The token seems to be expired. @{[ $blob->uri ]}";
-
-                            my $num = $self->{_num_token_timeout}{$blob->uri}++;
-                            my $max = 2;
-                            if ($num <= $max) {
-                                say "Retry($num/$max) fetching page. @{[ $page_uri ]}";
-                                redo PAGE;
-                            }
-                            else {
-                                say "Reached max retries. Skipping...";
-                                push @not_found, $basename;
-                            }
-                        }
-                        else {
-                            die $err;
-                        }
-                    }
-                    else {
-                        push @downloaded, $basename;
-                    }
+    my @channels = $self->_channels;
+    for my $channel (@channels) {
+        $log->debug("--> Channel $channel");
+        my @pages = $self->_pages($channel);
+        for my $page (@pages) {
+            $log->debug("  --> Page $page");
+            my @articles = $self->_articles($page);
+            for my $article (@articles) {
+                $log->debug("    --> Article $article");
+                my @media = $self->_media($article);
+                for my $media (@media) {
+                    my $type = $self->_media_type($media);
+                    $log->debug("      --> Media($type) $media");
+                    $self->_download($channel, $media, $type) if grep { $_ eq $type } @{$self->download_media_types};
                 }
             }
         }
     }
 
-    my $finish_time = time;
+    # my @downloaded;
+    # my @not_found;
+    # my @all_blobs;
+    # my @skipped;
+    # my $mech = $self->mech;
+    # PAGE: for my $page_uri (@page_uris) {
+    #     say "==> $page_uri";
+    #     $mech->get($page_uri);
+    #     my @articles = $self->_articles($page_uri);
+    #     for my $article (@articles) {
+    #         my @m3u8 = $self->_m3u8($article);
+    #     }
 
-    say "";
-    say "";
-    say sprintf("%d pages, %d blobs, %d skipped, %d downloaded, %d not found", 0+@page_uris, 0+@all_blobs, 0+@skipped, 0+@downloaded, 0+@not_found);
-    say "start: " . strftime("%Y-%m-%d %H:%M:%S", localtime($start_time));
-    say "finish: " . strftime("%Y-%m-%d %H:%M:%S", localtime($finish_time));
-    say "elapsed: " . duration($finish_time - $start_time);
-    say "not found: ";
-    say "\t$_" for @not_found;
-    say "succeeded.";
+    #     # my $page = App::MirrorVideonews::Page->new( app => $self );
+    #     # for my $type (@{$self->blob_types}) {
+    #     #     for my $blob ($page->blobs($type)) {
+    #     #         my $basename = $blob->save_as_basename;
+    #     #         say "--> $basename";
+    #     #         push @all_blobs, $blob;
+    #     #         if (my $fn = $self->exists_file($basename)) {
+    #     #             say "skipping. $fn";
+    #     #             push @skipped, $basename;
+    #     #         }
+    #     #         else {
+    #     #             eval { $blob->download( catfile($self->save_dir, $basename) ) };
+    #     #             if (my $err = $@) {
+    #     #                 if ($err->$_isa("App::MirrorVideonews::Exception::NotFound")) {
+    #     #                     say "File is not found. $basename";
+    #     #                     push @not_found, $basename;
+    #     #                 }
+    #     #                 elsif ($err->$_isa("App::MirrorVideonews::Exception::TokenTimeout")) {
+    #     #                     # HLSのURIのトークンキーらしきものが、タイムアウトしている場合
+    #     #                     say "The token seems to be expired. @{[ $blob->uri ]}";
+
+    #     #                     my $num = $self->{_num_token_timeout}{$blob->uri}++;
+    #     #                     my $max = 2;
+    #     #                     if ($num <= $max) {
+    #     #                         say "Retry($num/$max) fetching page. @{[ $page_uri ]}";
+    #     #                         redo PAGE;
+    #     #                     }
+    #     #                     else {
+    #     #                         say "Reached max retries. Skipping...";
+    #     #                         push @not_found, $basename;
+    #     #                     }
+    #     #                 }
+    #     #                 else {
+    #     #                     die $err;
+    #     #                 }
+    #     #             }
+    #     #             else {
+    #     #                 push @downloaded, $basename;
+    #     #             }
+    #     #         }
+    #     #     }
+    #     # }
+    # }
+
+    # my $finish_time = time;
+
+    # say "";
+    # say "";
+    # say sprintf("%d pages, %d blobs, %d skipped, %d downloaded, %d not found", 0+@page_uris, 0+@all_blobs, 0+@skipped, 0+@downloaded, 0+@not_found);
+    # say "start: " . strftime("%Y-%m-%d %H:%M:%S", localtime($start_time));
+    # say "finish: " . strftime("%Y-%m-%d %H:%M:%S", localtime($finish_time));
+    # say "elapsed: " . duration($finish_time - $start_time);
+    # say "not found: ";
+    # say "\t$_" for @not_found;
+    # say "succeeded.";
 
     exit 0;
 }
 
-our @HAYSTACK = (1..100);
-sub _all_page_uris {
-    my ($self, $index) = @_;
+sub _articles {
+    my ($self, $page) = @_;
 
-    my $mech           = $self->mech;
-    my $needle         = [$self, $index];
-    my $first_found_ix = bsearch_custom \&_comparator, $needle, @HAYSTACK;
+    $self->mech->get($page);
 
-    unless (defined $first_found_ix) {
-        @HAYSTACK = (1 .. @HAYSTACK*2);
-        goto \&_all_page_uris;
+    my @uris;
+    wq( $self->mech->content )->find('div.channel h2 a')->each(
+        sub {
+            push @uris, URI->new_abs($_->attr('href'), $page);
+        }
+    );
+
+    @uris;
+}
+
+sub _channels {
+    my ($self) = @_;
+
+    my $top = 'http://www.videonews.com/channel/';
+
+    my @href;
+    $self->mech->get($top);
+    wq( $self->mech->content )->find('a img')->each(
+        sub {
+            return unless $_->attr('alt') and $_->attr('alt') eq '一覧';
+            push @href, URI->new_abs($_->parent->attr('href'), $top);
+        }
+    );
+    @href = uniq @href;
+}
+
+sub _download {
+    my ($self, $channel, $media, $type) = @_;
+
+    my $channel_dir = (URI->new($channel)->path_segments)[1];
+
+    if ($type eq 'FLV') {
+        $self->mech->get($media);
+        my @uris;
+        my $finder = URI::Find->new( sub {
+            my ($uri, $orig_uri) = @_;
+            push @uris, $orig_uri;
+        });
+        $finder->find( \$self->mech->content );
+
+        my $m3u8 = first { /m3u8/ } @uris;
+        my $basename = do {
+            my $uri = URI->new($m3u8);
+            my $name = ($uri->path_segments)[1];
+            my $ext  = "flv";
+            "$name.$ext";
+        };
+
+        return if $self->exists_file($channel_dir, $basename);
+
+        my $filename = catfile($self->save_dir, $channel_dir, $basename);
+        (my $temp = $filename) =~ s/\.[^.]+$/.tmp$&/ or die;
+        -d dirname($filename) or make_path dirname($filename) or die $!;
+
+        my $ffmpeg = which('ffmpeg') or die "ffmpeg not found.";
+        my @cmd = ($ffmpeg, '-v', 'quiet', '-stats', '-y', '-i', $m3u8, '-c', 'copy', $temp);
+        say "cmd: " . join(" ", @cmd);
+        system(@cmd);
+        say "ret: $?";
+        unless ($? == 0) {
+            die $!;
+        }
+        rename $temp, $filename or die $!;
+    }
+    elsif ($type eq 'WMV') {
+        # http://www.videonews.com/cb/v.php?p=/marugeki/645/marugeki_645-1a.wma
+        my $basename = do {
+            URI->new($media)->query_param('p') =~ m{^.+/(.+)$} ? $1 : die;
+        };
+
+        return if $self->exists_file($channel_dir, $basename);
+
+        my $filename = catfile($self->save_dir, $channel_dir, $basename);
+        -d dirname($filename) or make_path dirname($filename) or die $!;
+
+        my $mms_uri = $self->_mms_uri_by_http_uri($media);
+
+        my $msdl    = which("msdl")   or die "msdl not found.";
+        my $ffmpeg  = which("ffmpeg") or die "ffmpeg not found.";
+
+        (my $wm1_fn = $filename) =~ s/\.[^.]+$/.unseekable$&/ or die;
+        (my $wm2_fn = $filename) =~ s/\.[^.]+$/.seekable$&/   or die;
+        scope_guard {
+            -f $wm1_fn and unlink $wm1_fn;
+            -f $wm2_fn and unlink $wm2_fn;
+        };
+
+        my $test_wmv = "t/data/test.unseekable.wmv";
+        # 500/(300/8) = 13.33333333333333333333
+        my ($in, $out, $err);
+        my @cmd = ($msdl, '-s', 13, '-o', $wm1_fn, $mms_uri);
+        say "cmd: " . join(" ", @cmd);
+        system(@cmd);
+        say "ret: $?";
+        unless ($? == 0) {
+            if ( -f $wm1_fn ) {
+                return;
+            }
+            else {
+                App::MirrorVideonews::Exception::NotFound->throw;
+            }
+        }
+
+        {
+            # http://web.archiveorange.com/archive/v/KKJCyu8LV0Kt8lTDZs1R
+            # ffmpeg -i news_593-1_300r.wmv -acodec copy -vcodec copy /largefs/news_593-1_300r-copy.wmv
+            my ($in, $out, $err);
+            my @cmd = ($ffmpeg, '-v', 'quiet', '-stats', "-y", "-i", $wm1_fn, qw(-acodec copy -vcodec copy), $wm2_fn);
+            say "cmd: " . join(" ", @cmd);
+            system(@cmd);
+            say "ret: $?";
+            unless ($? == 0) {
+                return;
+            }
+        }
+
+        rename $wm2_fn, $filename or die $!;
+    }
+    else {
+        $log->error("Unsupported media type. $type");
+    }
+}
+
+sub _media {
+    my ($self, $article) = @_;
+
+    $self->mech->get($article);
+    my @uris;
+    wq( $self->mech->content )->find('#player iframe')->each(
+        sub {
+            push @uris, URI->new_abs($_->attr('src'), $article);
+        }
+    );
+    wq( $self->mech->content )->find('.wmvbtn a, .audiobtn a')->each(
+        sub {
+            push @uris, URI->new_abs($_->attr('href'), $article);
+        }
+    );
+
+    @uris;
+}
+
+sub _media_type {
+    my ($self, $media) = @_;
+
+    # --> Video http://www.videonews.com/embed/?v=U2FsdGVkX1%2FCjBTbmKPRX9%2BqlgziDaGW5ryfCs7JEhM%3D&autoplay=0&thumb=1
+    # --> Video http://www.videonews.com/embed/?v=U2FsdGVkX19P8XDM68bszUMEzEGhVWaOzieWyS8pH2w%3D&autoplay=0&thumb=1
+    # --> Video http://www.videonews.com/cb/v2.php?p=/marugeki/705/marugeki_705-1_300.wmv
+    # --> Video http://www.videonews.com/extm3/?v=U2FsdGVkX1%2BFPIYp5EyLXhSF9xPNiEuNHfiA9ycmir8%3D&t=1
+    # --> Video http://www.videonews.com/cb/v2.php?p=/marugeki/705/marugeki_705-2_300.wmv
+    # --> Video http://www.videonews.com/extm3/?v=U2FsdGVkX1%2FqUQuzEJb5XggNTSXWR9CYb%2Flgy81Vra8%3D&t=1
+
+    return 'FLV'    if $media =~ /autoplay/;
+    return 'WMV'    if $media =~ /300\.wmv/;
+    return 'iPhone' if $media =~ /extm3/;
+}
+
+sub _pages {
+    my ($self, $channel) = @_;
+
+    my $last_page = 1;
+
+    $self->mech->get($channel);
+    my $e = wq( $self->mech->content )->find('a.last')->first;
+    if ($e->size) {
+        $e->attr('href') =~ q{/page/(\d+)/};
+        $last_page = $1 || die;
     }
 
-    map { _uri_with_page_num($index, $_) } (1 .. $first_found_ix);
+    map { $channel . "page/$_/" } (1..$last_page);
+}
+
+# mms://wm-videonews.bmcdn.jp/wm-videonews/news/news_573-0_300.wmv?key=....
+# http_uriから得られるmms_uriはkeyが付く。
+# このkeyの有効期間は長くはないよう。
+# http_uri -> mms_uri -> mmsダウンロード は続けて行なったほうが無難っぽい。
+#
+# 有料のwmvは、key付き。
+#   http://www.videonews.com/cb/v.php?p=/marugeki/591/marugeki_591-1_300.wmv
+#       -> mms://wm-videonews.bmcdn.jp/wm-videonews/news/marugeki_591-1_300.wmv?key=....
+# 無料のwmvは、asxで、key無し。
+#   http://www.videonews.com/asx/news/news_591-1.asx
+#       -> mms://wm1-videonews.bmcdn.jp/wm1-videonews/news/news_591-1_300.wmv
+sub _mms_uri_by_http_uri {
+    my ($self, $http_uri)  = @_;
+
+    require HTML::TreeBuilder;
+    my $mech = $self->mech;
+    my $res  = $mech->get($http_uri);
+    my $root = HTML::TreeBuilder->new;
+    $root->ignore_unknown(0);
+    $root->parse($mech->content);
+    $root->eof;
+    if ( $http_uri =~ m/\.wm/ ) {
+        my $href = $root->find_by_tag_name('a')->attr('href');
+        URI->new($href)->query_param('p');
+    }
+    else {
+        $root->find_by_tag_name('ref')->attr('href');
+    }
 }
 
 sub _build_mech {
     my $self = shift;
+ 
+    require WWW::Mechanize::PhantomJS;
 
-    my $mech = WWW::Scripter->new(
-        agent => 'Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)',
+    my $mech = WWW::Mechanize::PhantomJS->new(
+        cookie_file => 'var/cookie.dat',
     );
-    $mech->use_plugin('JavaScript');
-
-    # warnを抑制
-    #
-    # TypeError: undefined has no properties, not even one named expando at https://ajax.googleapis.com/ajax/libs/jquery/1/jquery.min.js, line 3.
-    # Argument "\x{b}1" isn't numeric in addition (+) at /Users/bokutin/perl5/perlbrew/perls/perl-5.16.2/lib/site_perl/5.16.2/JE/Number.pm line 93.
-    # TypeError: The object's 'attachEvent' property (undefined) is not a function at http://hlsp01.videonews.com/swf/js/swfobject.min.js, line 4.
-    # ReferenceError: The variable JSON has not been declared at http://hlsp01.videonews.com/flash/?U2FsdGVkX1%2FW9CJDT71UvJ7YZKmH3tsdAklpgfFfWy0%3D, line 81.
-    $mech->quiet(1);
 
     $mech;
 }
 
-sub _comparator {
-    my ($needle, $haystack_item) = @_;
-
-    my ($self, $index) = @$needle;
-    my $page = $haystack_item;
-    my $mech = $self->mech;
-    my $uri  = _uri_with_page_num($index, $page);
-    my $res  = $mech->simple_request( HEAD $uri );
-    #warn "$page " . $res->code;
-    $res->code == 200 ? 1 : 0;
-}
-
-sub _uri_with_page_num {
-    my ($uri, $page) = @_;
-    $uri =~ s/\.php/@{[ $page == 1 ? "" : "_$page" ]}.php/r;
-}
-
-__PACKAGE__->meta->make_immutable; no Moose; 1;
+no Moose;
+__PACKAGE__->meta->make_immutable;
+1;
