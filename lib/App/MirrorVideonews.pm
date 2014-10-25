@@ -478,6 +478,12 @@ sub _build_mech {
     require WWW::Mechanize::PhantomJS;
     my $mech = WWW::Mechanize::PhantomJS->new(
         cookie_file => 'var/cookie.dat',
+        phantomjs_arg => [
+            #'--debug=true',
+
+            # http://stackoverflow.com/a/26503511/980979
+            '--ssl-protocol=any',
+        ],
     );
 }
 
